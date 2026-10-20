@@ -14,8 +14,17 @@ Using the `claim` and `car` tables, write a SQL query to return a table containi
 
 Answer:
 
-```sql
-
+```
+SELECT 
+  cl.id,
+  cl.claim_date,
+  cl.travel_time,
+  cl.claim_amt,
+  c.car_type,
+  c.car_use
+FROM claim cl 
+INNER JOIN car c 
+  ON cl.car_id = c.id;
 ```
 
 ### Question 2
@@ -25,6 +34,13 @@ Write a SQL query to compute the running total of the `travel_time` column for e
 Answer:
 
 ```sql
+SELECT
+  id,
+  car_id,
+  travel_time,
+  SUM(travel_time) OVER (PARTITION BY car_id ORDER BY id) AS running_total
+FROM claim;
+ 
 
 ```
 
@@ -35,6 +51,20 @@ Using a Common Table Expression (CTE), write a SQL query to return a table conta
 Answer:
 
 ```sql
+WITH avg_resale AS (
+    SELECT
+      AVG(resale_value) AS avg_resale_value,
+      car_use
+    FROM car 
+    GROUP BY car_use
+)
+SELECT 
+  c.id,
+  c.resale_value,
+  c.car_use
+FROM car c
+JOIN avg_resale a ON c.car_use = a.car_use 
+WHERE c.resale_value < a.avg_resale_value;
 
 ```
 
@@ -65,6 +95,14 @@ Write those queries here:
 ```sql
 -- Your exploration queries
 ```
+SELECT DISTINCT 
+  car_type from car -- 6 car types
+SELECT DISTINCT
+  state from address -- 11 states
+SELECT COUNT(*)
+  FROM client 
+    LEFT JOIN address ON client.address_id = address.id WHERE address.id IS NULL -- all clients have address_id
+
 
 ---
 
@@ -76,6 +114,15 @@ Write a query (no CTE yet) that joins `claim` and `car`, and adds a column `avg_
 
 ```sql
 -- Step 2: Your query here
+SELECT 
+  cl.id AS claim_id,
+  c.car_type,
+  cl.claim_amt,
+  AVG(cl.claim_amt) OVER (PARTITION by c.car_type) as avg_per_car
+FROM claim cl 
+LEFT JOIN car c 
+  ON cl.car_id = c.id;
+
 ```
 
 <details>
@@ -108,7 +155,15 @@ Wrap your Step 2 query in a CTE called `market_comparison`, then write a second 
 ```sql
 -- Step 3: Your query here
 WITH market_comparison AS (
-    -- paste Step 2 query here
+  SELECT 
+    cl.id AS claim_id,
+    cl.client_id,
+    cl.claim_amt,
+    c.car_type,
+    AVG(cl.claim_amt) OVER (PARTITION BY c.car_type) AS avg_claim_by_car_type
+  FROM claim cl 
+  INNER JOIN car c
+    on cl.car_id = c.id
 ),
 client_totals AS (
     SELECT client_id, SUM(claim_amt) AS total_claimed
@@ -198,6 +253,77 @@ ORDER BY state, state_rank;
 ---
 
 **Submission:** Assemble all four CTEs into one script, save it as a `.sql` file with comments on each CTE explaining *why* it exists (not just what it does). Share in **#peer-reviews** on Discord, or keep it in your own notes if self-studying.
+
+```
+
+WITH market_comparison AS (
+  SELECT 
+    cl.id AS claim_id,
+    cl.client_id,
+    cl.claim_amt,
+    c.car_type,
+    AVG(cl.claim_amt) OVER (PARTITION BY c.car_type) AS avg_claim_by_car_type
+  FROM claim AS cl 
+  INNER JOIN car AS c
+    ON cl.car_id = c.id
+),
+
+client_totals AS (
+  SELECT 
+    client_id, 
+    COUNT(claim_id) AS total_claims_count,
+    SUM(claim_amt) AS total_claim_amt
+  FROM market_comparison
+  GROUP BY client_id
+),
+
+client_details AS (
+  SELECT 
+    cli.id AS client_id,
+    cli.first_name,
+    cli.last_name,
+    cli.address_id,
+    a.state
+  FROM client AS cli
+  INNER JOIN address AS a 
+    ON cli.address_id = a.id
+)
+
+SELECT 
+  cd.client_id, 
+  cd.first_name || ' ' || cd.last_name AS client_name, 
+  cd.state,
+  ct.total_claims_count, 
+  ct.total_claim_amt 
+FROM client_details AS cd 
+INNER JOIN client_totals AS ct 
+  ON cd.client_id = ct.client_id 
+ORDER BY ct.total_claim_amt DESC;
+
+
+
+WITH ranked_clients AS ( 
+  SELECT 
+      cd.client_id, 
+      cd.first_name || ' ' || cd.last_name AS client_name,
+      cd.state, 
+      ct.total_claims_count, 
+      ct.total_claim_amt, 
+      RANK() OVER ( PARTITION BY cd.state ORDER BY ct.total_claim_amt DESC ) AS state_rank 
+  FROM client_details cd 
+  INNER JOIN client_totals ct ON cd.client_id = ct.client_id 
+)
+
+SELECT
+    client_name AS "Client Name",
+    state       AS "State",
+    car_type    AS "Car Type",
+    ROUND(total_claimed, 2) AS "Total Claimed",
+    state_rank  AS "State Rank"
+FROM ranked_clients
+WHERE state_rank <= 2
+ORDER BY state, state_rank;
+```
 
 ---
 
